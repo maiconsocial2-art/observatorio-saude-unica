@@ -37,15 +37,11 @@ export default function Login() {
         mostrarMensagem(
           "E-mail ou senha incorretos. Confira seus dados e tente novamente."
         );
-      } else if (
-        codigo === "email_not_confirmed"
-      ) {
+      } else if (codigo === "email_not_confirmed") {
         mostrarMensagem(
           "Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada."
         );
-      } else if (
-        codigo === "too_many_requests"
-      ) {
+      } else if (codigo === "too_many_requests") {
         mostrarMensagem(
           "Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente."
         );
@@ -149,6 +145,7 @@ export default function Login() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
 
+        {/* Cabeçalho */}
         <div className="mb-8 text-center">
           <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-teal-700">
             Observatório Saúde Única
@@ -163,6 +160,7 @@ export default function Login() {
           </p>
         </div>
 
+        {/* Formulário de login */}
         <form onSubmit={entrar} className="space-y-5">
 
           <div>
@@ -176,7 +174,8 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="seuemail@exemplo.com"
-              className="w-full rounded-lg border border-slate-300 p-3 text-black outline-none focus:border-teal-600"
+              autoComplete="email"
+              className="w-full rounded-lg border border-slate-300 p-3 text-black outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
             />
           </div>
 
@@ -191,10 +190,12 @@ export default function Login() {
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               placeholder="Digite sua senha"
-              className="w-full rounded-lg border border-slate-300 p-3 text-black outline-none focus:border-teal-600"
+              autoComplete="current-password"
+              className="w-full rounded-lg border border-slate-300 p-3 text-black outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
             />
           </div>
 
+          {/* Mensagens */}
           {mensagem && (
             <div
               role="alert"
@@ -209,16 +210,18 @@ export default function Login() {
             </div>
           )}
 
+          {/* Botão entrar */}
           <button
             type="submit"
             disabled={carregando || recuperando}
-            className="w-full rounded-lg bg-teal-700 p-3 font-semibold text-white transition hover:bg-teal-800 disabled:opacity-60"
+            className="w-full rounded-lg bg-teal-700 p-3 font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {carregando ? "Entrando..." : "Entrar"}
           </button>
 
         </form>
 
+        {/* Recuperação de senha */}
         <button
           type="button"
           onClick={recuperarSenha}
@@ -230,6 +233,25 @@ export default function Login() {
             : "Esqueci minha senha"}
         </button>
 
+        {/* Criar conta */}
+        <div className="mt-7 rounded-xl border border-teal-100 bg-teal-50 p-5 text-center">
+          <h2 className="text-lg font-semibold text-slate-800">
+            Ainda não tem uma conta?
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-600">
+            Cadastre-se gratuitamente e faça parte do Observatório Saúde Única.
+          </p>
+
+          <a
+            href="/cadastro"
+            className="mt-4 block w-full rounded-lg border border-teal-700 bg-white p-3 font-semibold text-teal-700 transition hover:bg-teal-700 hover:text-white"
+          >
+            Criar minha conta
+          </a>
+        </div>
+
+        {/* Rodapé */}
         <p className="mt-8 text-center text-sm text-slate-500">
           Observatório Saúde Única | Informação, prevenção e integração.
         </p>
