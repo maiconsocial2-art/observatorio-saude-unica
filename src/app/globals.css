@@ -1,0 +1,300 @@
+
+@import "tailwindcss";
+
+/* =====================================
+   CONFIGURAÇÕES GERAIS
+===================================== */
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* =====================================
+   MODO ESCURO
+===================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+/* =====================================
+   ESTILIZAÇÃO GLOBAL
+===================================== */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* =====================================
+   CARREGAMENTO GLOBAL DO OBSERVATÓRIO
+===================================== */
+
+.tela-carregamento {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #f4faf6;
+  animation: aparecer-tela 0.35s ease forwards;
+}
+
+.conteudo-carregamento {
+  position: relative;
+  z-index: 2;
+  width: 90%;
+  max-width: 430px;
+  padding: 35px 25px;
+  text-align: center;
+  animation: subir-conteudo 0.7s ease;
+}
+
+.simbolo-carregamento {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 85px;
+  height: 85px;
+  margin: 0 auto 22px;
+  border-radius: 50%;
+  background: #e0f1e5;
+  box-shadow: 0 8px 30px rgba(36, 112, 70, 0.12);
+}
+
+.simbolo-carregamento span {
+  font-size: 43px;
+  animation: respirar-folha 2s ease-in-out infinite;
+}
+
+.conteudo-carregamento h1 {
+  color: #173f30;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.7px;
+}
+
+.conteudo-carregamento p {
+  margin-top: 10px;
+  color: #648071;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.barra-carregamento {
+  width: 190px;
+  height: 5px;
+  margin: 27px auto 13px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #dcebe0;
+}
+
+.barra-progresso {
+  width: 45%;
+  height: 100%;
+  border-radius: 20px;
+  background: linear-gradient(
+    90deg,
+    #0d9488,
+    #48a76d,
+    #a4c96a
+  );
+  animation: carregar-barra 1.2s ease-in-out infinite;
+}
+
+.texto-carregamento {
+  color: #789487;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+/* =====================================
+   FOLHAS CAINDO
+===================================== */
+
+.folhas-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.folha {
+  position: absolute;
+  top: -80px;
+  display: block;
+  opacity: 0;
+  font-size: 27px;
+  animation: cair-folha linear infinite;
+}
+
+.folha-1 {
+  left: 8%;
+  animation-duration: 6s;
+  animation-delay: 0s;
+}
+
+.folha-2 {
+  left: 22%;
+  animation-duration: 8s;
+  animation-delay: 1.2s;
+  font-size: 21px;
+}
+
+.folha-3 {
+  left: 38%;
+  animation-duration: 7s;
+  animation-delay: 2s;
+  font-size: 31px;
+}
+
+.folha-4 {
+  left: 55%;
+  animation-duration: 9s;
+  animation-delay: 0.5s;
+}
+
+.folha-5 {
+  left: 70%;
+  animation-duration: 6.5s;
+  animation-delay: 2.5s;
+  font-size: 22px;
+}
+
+.folha-6 {
+  left: 84%;
+  animation-duration: 8s;
+  animation-delay: 1.5s;
+  font-size: 32px;
+}
+
+.folha-7 {
+  left: 94%;
+  animation-duration: 7.5s;
+  animation-delay: 3s;
+  font-size: 19px;
+}
+
+/* =====================================
+   ANIMAÇÕES
+===================================== */
+
+@keyframes cair-folha {
+  0% {
+    transform: translateY(-10vh) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 0.85;
+  }
+
+  50% {
+    transform: translateY(55vh) translateX(55px) rotate(180deg);
+    opacity: 0.8;
+  }
+
+  90% {
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: translateY(115vh) translateX(-45px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes respirar-folha {
+  0%, 100% {
+    transform: scale(1) rotate(-5deg);
+  }
+
+  50% {
+    transform: scale(1.12) rotate(8deg);
+  }
+}
+
+@keyframes carregar-barra {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(230%);
+  }
+}
+
+@keyframes aparecer-tela {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes subir-conteudo {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =====================================
+   ACESSIBILIDADE
+===================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .folha,
+  .simbolo-carregamento span,
+  .barra-progresso,
+  .tela-carregamento,
+  .conteudo-carregamento {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* =====================================
+   PAINEL DE DOENÇAS
+===================================== */
+
+.admin-doencas,
+.admin-doencas input,
+.admin-doencas textarea,
+.admin-doencas select,
+.admin-doencas label,
+.admin-doencas p,
+.admin-doencas h1,
+.admin-doencas h2,
+.admin-doencas h3,
+.admin-doencas article {
+  color: #000000 !important;
+}
+
+.admin-doencas input,
+.admin-doencas textarea,
+.admin-doencas select {
+  background-color: #ffffff;
+}
