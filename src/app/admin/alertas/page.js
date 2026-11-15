@@ -191,6 +191,10 @@ export default function AlertasPage() {
     setSalvando(true);
     setMensagem("");
 
+    const alertaAnterior = editando
+      ? alertas.find((alerta) => alerta.id === editando)
+      : null;
+
     const {
       data: { user },
       error: erroUsuario,
@@ -227,24 +231,101 @@ export default function AlertasPage() {
       resultado = await supabase
         .from("alertas")
         .update(dadosAtualizados)
-        .eq("id", editando);
+        .eq("id", editando)
+        .select("*")
+        .single();
     } else {
       resultado = await supabase
         .from("alertas")
-        .insert(dados);
+        .insert(dados)
+        .select("*")
+        .single();
     }
 
-    if (resultado.error) {
-      setMensagem("Não foi possível salvar: " + resultado.error.message);
+    if (resultado.error || !resultado.data) {
+      setMensagem(
+        "Não foi possível salvar: " +
+          (resultado.error?.message || "Nenhum alerta retornado.")
+      );
       setSalvando(false);
       return;
     }
 
-    setMensagem(
-      editando
-        ? "Alerta atualizado com sucesso!"
-        : "Alerta cadastrado com sucesso!"
-    );
+    const alertaSalvo = resultado.data;
+
+    const primeiraPublicacao =
+      alertaSalvo.status === "publicado" &&
+      alertaSalvo.enviar_por_email === true &&
+      (!alertaAnterior || alertaAnterior.status !== "publicado");
+
+    let mensagemFinal = editando
+      ? "Alerta atualizado com sucesso!"
+      : "Alerta cadastrado com sucesso!";
+
+    if (primeiraPublicacao) {
+      setMensagem(
+        "Alerta salvo! Preparando o envio dos e-mails..."
+      );
+
+      try {
+        const {
+          data: { session },
+          error: erroSessao,
+        } = await supabase.auth.getSession();
+
+        if (erroSessao || !session?.access_token) {
+          throw new Error(
+            "Não foi possível validar sua sessão para enviar os e-mails."
+          );
+        }
+
+        const resposta = await fetch("/api/alertas", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            alertaId: alertaSalvo.id,
+          }),
+        });
+
+        const resultadoEnvio = await resposta.json();
+
+        if (!resposta.ok) {
+          throw new Error(
+            resultadoEnvio.erro ||
+              "Não foi possível processar o envio dos e-mails."
+          );
+        }
+
+        mensagemFinal =
+          `Alerta publicado com sucesso! ` +
+          `${resultadoEnvio.enviados || 0} e-mail(s) enviado(s).`;
+
+        if (resultadoEnvio.falhas > 0) {
+          mensagemFinal +=
+            ` Houve ${resultadoEnvio.falhas} falha(s) no envio.`;
+        }
+
+        if (
+          resultadoEnvio.enviados === 0 &&
+          resultadoEnvio.falhas === 0
+        ) {
+          mensagemFinal +=
+            " Nenhum usuário elegível foi encontrado para este município.";
+        }
+      } catch (erroEnvio) {
+        console.error("Erro ao disparar e-mails:", erroEnvio);
+
+        mensagemFinal =
+          "O alerta foi salvo e publicado, mas houve um problema " +
+          "no processamento dos e-mails: " +
+          erroEnvio.message;
+      }
+    }
+
+    setMensagem(mensagemFinal);
 
     limparFormulario();
     await carregarAlertas();
@@ -678,9 +759,8 @@ export default function AlertasPage() {
               </div>
 
               <p className="mt-4 text-xs text-slate-500">
-                A seleção dos canais será salva junto com o alerta.
-                O envio efetivo de e-mails depende da integração com
-                um serviço de envio.
+                Os e-mails serão enviados aos usuários que autorizaram
+                o recebimento e selecionaram o município do alerta.
               </p>
             </div>
 
