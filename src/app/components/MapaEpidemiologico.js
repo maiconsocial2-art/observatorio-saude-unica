@@ -41,6 +41,15 @@ function normalizar(valor) {
     .toLowerCase();
 }
 
+function normalizarMunicipio(valor) {
+  return normalizar(valor)
+    .replace(/\s*[-/]\s*(ba|bahia)$/i, "")
+    .replace(/\s+(ba|bahia)$/i, "")
+    .replace(/[.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function primeiroValor(objeto, campos) {
   for (const campo of campos) {
     const valor = objeto?.[campo];
@@ -57,56 +66,63 @@ function primeiroValor(objeto, campos) {
   return null;
 }
 
+function somenteNumeros(valor) {
+  return String(valor ?? "").replace(/\D/g, "");
+}
+
 function obterCodigoFeature(feature) {
   const propriedades = feature?.properties || {};
 
-  return String(
-    primeiroValor(propriedades, [
-      "id",
-      "CD_MUN",
-      "CD_MUNICIPIO",
-      "GEOCODIGO",
-      "codigo",
-    ]) ||
-      feature?.id ||
-      ""
-  );
+  const codigo = primeiroValor(propriedades, [
+    "codarea",
+    "CD_MUN",
+    "CD_MUNICIPIO",
+    "CD_MUN_IBGE",
+    "GEOCODIGO",
+    "codigo",
+    "id",
+  ]);
+
+  return String(codigo || feature?.id || "").trim();
 }
 
 function obterMunicipioFeature(feature, municipios) {
-  const codigo = obterCodigoFeature(feature);
+  const propriedades = feature?.properties || {};
 
-  if (codigo) {
+  const codigoFeature = somenteNumeros(
+    obterCodigoFeature(feature)
+  );
+
+  if (codigoFeature) {
     const encontrado = municipios.find((municipio) => {
-      const id = String(municipio.id);
+      const codigoMunicipio = somenteNumeros(municipio.id);
 
       return (
-        id === codigo ||
-        id.startsWith(codigo) ||
-        codigo.startsWith(id)
+        codigoMunicipio === codigoFeature ||
+        codigoMunicipio.startsWith(codigoFeature) ||
+        codigoFeature.startsWith(codigoMunicipio)
       );
     });
 
     if (encontrado) return encontrado;
   }
 
-  const propriedades = feature?.properties || {};
-
-  const nome = primeiroValor(propriedades, [
+  const nomeFeature = primeiroValor(propriedades, [
+    "name",
     "NM_MUN",
     "NM_MUNICIPIO",
     "NOME_MUNICIPIO",
     "MUNICIPIO",
     "municipio",
     "NOME",
-    "name",
   ]);
 
-  if (nome) {
+  if (nomeFeature) {
     return (
       municipios.find(
         (municipio) =>
-          normalizar(municipio.nome) === normalizar(nome)
+          normalizarMunicipio(municipio.nome) ===
+          normalizarMunicipio(nomeFeature)
       ) || null
     );
   }
@@ -127,14 +143,16 @@ function obterNivelAlerta(registro) {
 
   if (
     valor.includes("vermelho") ||
-    valor.includes("critico")
+    valor.includes("critico") ||
+    valor.includes("alto risco")
   ) {
     return "vermelho";
   }
 
   if (
     valor.includes("amarelo") ||
-    valor.includes("moderado")
+    valor.includes("moderado") ||
+    valor.includes("medio")
   ) {
     return "amarelo";
   }
@@ -164,8 +182,16 @@ function obterQuantidade(registro) {
 }
 
 function obterNomeDoenca(registro) {
+  if (registro?.doenca && typeof registro.doenca === "object") {
+    return (
+      registro.doenca.nome ||
+      registro.nome_doenca ||
+      registro.doenca_nome ||
+      "Doença não informada"
+    );
+  }
+
   return (
-    registro?.doenca?.nome ||
     registro?.nome_doenca ||
     registro?.doenca_nome ||
     registro?.doenca ||
@@ -175,7 +201,7 @@ function obterNomeDoenca(registro) {
 }
 
 function obterRegistrosDoMunicipio(registros, municipio) {
-  const chave = normalizar(municipio);
+  const chave = normalizarMunicipio(municipio);
 
   return registros.filter((registro) => {
     const nomeMunicipio = primeiroValor(registro, [
@@ -186,7 +212,7 @@ function obterRegistrosDoMunicipio(registros, municipio) {
 
     return (
       nomeMunicipio &&
-      normalizar(nomeMunicipio) === chave
+      normalizarMunicipio(nomeMunicipio) === chave
     );
   });
 }
@@ -229,12 +255,12 @@ function alertaAtivo(alerta) {
 }
 
 function obterAlertasDoMunicipio(alertas, municipio) {
-  const chave = normalizar(municipio);
+  const chave = normalizarMunicipio(municipio);
 
   return alertas.filter((alerta) => {
     return (
       alertaAtivo(alerta) &&
-      normalizar(alerta.municipio) === chave
+      normalizarMunicipio(alerta.municipio) === chave
     );
   });
 }
@@ -312,12 +338,14 @@ function obterDadosMunicipio(
     doencasSelecionadas
   );
 
+  const resumo = obterResumoMunicipio(
+    registrosFiltrados,
+    alertasFiltrados
+  );
+
   return {
     ...municipio,
-    ...obterResumoMunicipio(
-      registrosFiltrados,
-      alertasFiltrados
-    ),
+    ...resumo,
     doencas: [
       ...new Set([
         ...registrosFiltrados.map(obterNomeDoenca),
@@ -336,12 +364,18 @@ function criarFeatureCollection(features) {
   };
 }
 
+function municipioEstaSelecionado(municipio, selecionados) {
+  return selecionados.some(
+    (item) => String(item.id) === String(municipio.id)
+  );
+}
+
 /*
- * CAMADA MUNICIPAL
+ * CAMADA DOS MUNICÍPIOS
  *
- * Utiliza exclusivamente a malha municipal do IBGE.
  * Cada polígono representa um município da Bahia.
- * Não utiliza bairros nem a camada cartográfica da CONDER.
+ * A cor é calculada pelos registros e alertas associados
+ * ao município, e não pela seleção da lista.
  */
 function CamadaMunicipios({
   municipiosMalha,
@@ -387,13 +421,20 @@ function CamadaMunicipios({
   const municipiosVisiveis = useMemo(() => {
     if (!municipiosMalha?.features?.length) return [];
 
-    if (!alertasSelecionados.length) return [];
-
     return municipiosMalha.features.filter((feature) => {
       const dados = obterDadosFeature(feature);
 
+      if (!dados) return false;
+
+      const selecionado = municipioEstaSelecionado(
+        dados,
+        municipiosSelecionados
+      );
+
+      // Municípios selecionados continuam visíveis,
+      // mesmo que seu nível esteja desmarcado no filtro.
       return (
-        dados &&
+        selecionado ||
         alertasSelecionados.includes(dados.nivel)
       );
     });
@@ -401,6 +442,7 @@ function CamadaMunicipios({
     municipiosMalha,
     obterDadosFeature,
     alertasSelecionados,
+    municipiosSelecionados,
   ]);
 
   const estilo = useCallback(
@@ -410,28 +452,29 @@ function CamadaMunicipios({
       if (!dados) {
         return {
           color: "#64748b",
-          weight: 0.5,
-          fillColor: "#94a3b8",
-          fillOpacity: 0.3,
+          weight: 0.8,
+          fillColor: CORES_ALERTA.nao_avaliado,
+          fillOpacity: 0.75,
         };
       }
 
-      const selecionado = municipiosSelecionados.some(
-        (item) => String(item.id) === String(dados.id)
+      const selecionado = municipioEstaSelecionado(
+        dados,
+        municipiosSelecionados
       );
+
+      const cor = CORES_ALERTA[dados.nivel] ||
+        CORES_ALERTA.nao_avaliado;
 
       return {
         color: selecionado ? "#111827" : "#475569",
-        weight: selecionado ? 2.5 : 0.8,
+        weight: selecionado ? 3 : 1,
         opacity: 1,
-        fillColor: CORES_ALERTA[dados.nivel],
-        fillOpacity: selecionado ? 0.9 : 0.7,
+        fillColor: cor,
+        fillOpacity: selecionado ? 0.9 : 0.75,
       };
     },
-    [
-      obterDadosFeature,
-      municipiosSelecionados,
-    ]
+    [obterDadosFeature, municipiosSelecionados]
   );
 
   const interacao = useCallback(
@@ -440,16 +483,20 @@ function CamadaMunicipios({
 
       if (!dados) return;
 
-      layer.bindTooltip(
-        `<strong>${dados.nome}</strong><br/>` +
-          `${NOMES_ALERTA[dados.nivel]}<br/>` +
-          `${dados.registros} registro(s)<br/>` +
-          `${dados.quantidade.toLocaleString("pt-BR")} caso(s)`,
-        {
-          sticky: true,
-          direction: "top",
-        }
-      );
+      const tooltip = `
+        <div style="min-width:160px">
+          <strong>${dados.nome}</strong><br/>
+          <span>${NOMES_ALERTA[dados.nivel]}</span><br/>
+          <span>${dados.registros} registro(s)</span><br/>
+          <span>${dados.alertas} alerta(s)</span><br/>
+          <span>${dados.quantidade.toLocaleString("pt-BR")} caso(s)</span>
+        </div>
+      `;
+
+      layer.bindTooltip(tooltip, {
+        sticky: true,
+        direction: "top",
+      });
 
       layer.on({
         click: () => {
@@ -504,12 +551,18 @@ function AjustarVisualizacao({
     }
 
     const codigosSelecionados = new Set(
-      municipiosSelecionados.map((item) => String(item.id))
+      municipiosSelecionados.map((item) =>
+        somenteNumeros(item.id)
+      )
     );
 
     const featuresSelecionadas =
       municipiosMalha.features.filter((feature) => {
-        const codigo = obterCodigoFeature(feature);
+        const codigo = somenteNumeros(
+          obterCodigoFeature(feature)
+        );
+
+        if (!codigo) return false;
 
         return [...codigosSelecionados].some(
           (id) =>
@@ -657,7 +710,7 @@ export default function MapaEpidemiologico() {
 
         const municipiosOrganizados = listaMunicipios
           .map((municipio) => ({
-            id: municipio.id,
+            id: String(municipio.id),
             nome: municipio.nome,
           }))
           .sort((a, b) =>
@@ -922,10 +975,6 @@ export default function MapaEpidemiologico() {
     setMunicipiosSelecionados([]);
   };
 
-  const selecionarMunicipioNaLista = (municipio) => {
-    alternarMunicipio(municipio);
-  };
-
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -933,7 +982,6 @@ export default function MapaEpidemiologico() {
           <p className="text-sm text-slate-500">
             Registros encontrados
           </p>
-
           <p className="mt-1 text-2xl font-bold text-slate-900">
             {resumoGeral.registros}
           </p>
@@ -943,7 +991,6 @@ export default function MapaEpidemiologico() {
           <p className="text-sm text-slate-500">
             Quantidade de casos
           </p>
-
           <p className="mt-1 text-2xl font-bold text-slate-900">
             {resumoGeral.casos.toLocaleString("pt-BR")}
           </p>
@@ -953,7 +1000,6 @@ export default function MapaEpidemiologico() {
           <p className="text-sm text-slate-500">
             Municípios selecionados
           </p>
-
           <p className="mt-1 text-2xl font-bold text-slate-900">
             {resumoGeral.municipios}
           </p>
@@ -978,9 +1024,8 @@ export default function MapaEpidemiologico() {
                 <h2 className="text-lg font-semibold text-slate-900">
                   Localização territorial
                 </h2>
-
                 <p className="text-sm text-slate-500">
-                  Pesquise e selecione os municípios da Bahia que deseja acompanhar. Você pode selecionar vários municípios.
+                  Pesquise e selecione os municípios da Bahia que deseja acompanhar.
                 </p>
               </div>
 
@@ -1025,9 +1070,9 @@ export default function MapaEpidemiologico() {
 
               <div className="mt-3 grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-slate-200 p-3 sm:grid-cols-2 lg:grid-cols-3">
                 {municipiosFiltrados.map((municipio) => {
-                  const selecionado = municipiosSelecionados.some(
-                    (item) =>
-                      String(item.id) === String(municipio.id)
+                  const selecionado = municipioEstaSelecionado(
+                    municipio,
+                    municipiosSelecionados
                   );
 
                   return (
@@ -1042,12 +1087,9 @@ export default function MapaEpidemiologico() {
                       <input
                         type="checkbox"
                         checked={selecionado}
-                        onChange={() =>
-                          selecionarMunicipioNaLista(municipio)
-                        }
+                        onChange={() => alternarMunicipio(municipio)}
                         className="h-4 w-4 rounded border-slate-300 text-blue-600"
                       />
-
                       <span>{municipio.nome}</span>
                     </label>
                   );
@@ -1061,7 +1103,6 @@ export default function MapaEpidemiologico() {
               <h2 className="text-lg font-semibold text-slate-900">
                 Filtros epidemiológicos
               </h2>
-
               <p className="text-sm text-slate-500">
                 Combine doenças e níveis de alerta para atualizar as cores dos municípios no mapa.
               </p>
@@ -1141,7 +1182,6 @@ export default function MapaEpidemiologico() {
                           onChange={() => alternarDoenca(doenca)}
                           className="h-4 w-4 rounded border-slate-300 text-blue-600"
                         />
-
                         <span>{doenca}</span>
                       </label>
                     ))}
@@ -1159,9 +1199,8 @@ export default function MapaEpidemiologico() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  Mapa epidemiológico da Bahia
+                  Mapa epidemiológico dos municípios da Bahia
                 </h2>
-
                 <p className="text-sm text-slate-500">
                   Cada área delimitada representa um município. Clique em um município para selecioná-lo ou removê-lo da seleção.
                 </p>
@@ -1179,7 +1218,6 @@ export default function MapaEpidemiologico() {
                         backgroundColor: CORES_ALERTA[nivel],
                       }}
                     />
-
                     {NOMES_ALERTA[nivel]}
                   </span>
                 ))}
@@ -1225,7 +1263,6 @@ export default function MapaEpidemiologico() {
                 <h2 className="text-lg font-semibold text-slate-900">
                   Municípios selecionados
                 </h2>
-
                 <p className="text-sm text-slate-500">
                   A seleção permanece ativa enquanto você utiliza os filtros.
                 </p>
@@ -1274,7 +1311,6 @@ export default function MapaEpidemiologico() {
                             backgroundColor: CORES_ALERTA[municipio.nivel],
                           }}
                         />
-
                         {NOMES_ALERTA[municipio.nivel]}
                       </span>
 
@@ -1302,19 +1338,19 @@ export default function MapaEpidemiologico() {
             </strong>
 
             <p className="mt-1">
-              O mapa utiliza os limites territoriais municipais fornecidos pelo IBGE. Cada polígono representa um dos municípios da Bahia. Não são utilizados polígonos de bairros.
+              O mapa utiliza exclusivamente os limites territoriais municipais fornecidos pelo IBGE. Cada polígono representa um município da Bahia.
             </p>
 
             <p className="mt-1">
-              Os registros epidemiológicos são associados ao município informado no cadastro. Os alertas publicados e vigentes também são associados ao município, independentemente da localidade específica informada.
+              Os registros epidemiológicos são associados ao município informado no cadastro. Os alertas publicados e vigentes também são associados ao município, independentemente da localidade específica.
             </p>
 
             <p className="mt-1">
-              Ao escolher uma ou mais doenças, a classificação de cada município considera somente os registros e alertas dessas doenças. Quando existem níveis diferentes no mesmo município, prevalece o mais grave: vermelho, amarelo e depois verde. Cinza indica ausência de registro correspondente ou ausência de classificação válida.
+              Ao escolher uma ou mais doenças, a classificação considera somente os registros e alertas dessas doenças. Quando existem níveis diferentes no mesmo município, prevalece o mais grave: vermelho, amarelo e depois verde. Cinza indica ausência de registro correspondente ou ausência de classificação válida.
             </p>
 
             <p className="mt-1">
-              Os filtros de nível de alerta controlam quais municípios aparecem no mapa. A seleção de municípios pode ser feita pela lista ou diretamente nos polígonos.
+              Os municípios selecionados continuam visíveis no mapa mesmo quando o respectivo nível de alerta é desmarcado nos filtros.
             </p>
           </div>
 
