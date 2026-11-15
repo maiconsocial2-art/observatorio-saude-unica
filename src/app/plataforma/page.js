@@ -29,7 +29,8 @@ const secoes = [
   { id: "ambiental", nome: "Saúde Ambiental", icone: "♻" },
   { id: "alertas", nome: "Alertas", icone: "⚑" },
   { id: "notificacoes", nome: "Notificações", icone: "🔔" },
-  { id: "preferencias", nome: "Preferências", icone: "⚙" },
+  { id: "minha-conta", nome: "Minha conta", icone: "👤" },
+  { id: "definicoes", nome: "Definições", icone: "⚙" },
   { id: "biblioteca", nome: "Biblioteca científica", icone: "▤" },
 ];
 
@@ -403,6 +404,19 @@ export default function Plataforma() {
 
   const [marcandoTodas, setMarcandoTodas] = useState(false);
 
+  // Dados e estados da área Minha conta
+  const [novoEmail, setNovoEmail] = useState("");
+  const [confirmarEmail, setConfirmarEmail] = useState("");
+  const [salvandoEmail, setSalvandoEmail] = useState(false);
+  const [erroEmail, setErroEmail] = useState("");
+  const [mensagemEmail, setMensagemEmail] = useState("");
+
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmarSenha, setConfirmarSenha] = useState("");
+  const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [erroSenha, setErroSenha] = useState("");
+  const [mensagemSenha, setMensagemSenha] = useState("");
+
   useEffect(() => {
     const parametros = new URLSearchParams(window.location.search);
     const secaoSolicitada = parametros.get("secao");
@@ -562,7 +576,6 @@ export default function Plataforma() {
   }, [usuario]);
 
   // Escuta novas notificações no Supabase em tempo real.
-  // Assim, o usuário não precisa atualizar a página.
   useEffect(() => {
     if (!usuario) return;
 
@@ -645,6 +658,100 @@ export default function Plataforma() {
     }
 
     setSalvandoPreferencias(false);
+  }
+
+  // Atualiza o e-mail da conta autenticada.
+  async function alterarEmail(event) {
+    event.preventDefault();
+
+    setErroEmail("");
+    setMensagemEmail("");
+
+    if (!usuario) {
+      setErroEmail("Não foi possível identificar sua conta. Entre novamente.");
+      return;
+    }
+
+    const email = novoEmail.trim().toLowerCase();
+    const confirmacao = confirmarEmail.trim().toLowerCase();
+
+    if (!email || !confirmacao) {
+      setErroEmail("Preencha os dois campos de e-mail.");
+      return;
+    }
+
+    if (email !== confirmacao) {
+      setErroEmail("Os e-mails informados não são iguais.");
+      return;
+    }
+
+    if (email === usuario.email?.toLowerCase()) {
+      setErroEmail("O novo e-mail precisa ser diferente do e-mail atual.");
+      return;
+    }
+
+    setSalvandoEmail(true);
+
+    const { data, error } = await supabase.auth.updateUser({
+      email,
+    });
+
+    if (error) {
+      console.error("Erro ao alterar e-mail:", error);
+      setErroEmail(error.message || "Não foi possível solicitar a alteração do e-mail.");
+    } else {
+      setMensagemEmail(
+        "Solicitação realizada! Verifique sua caixa de entrada do novo endereço e siga as instruções de confirmação do Supabase. Dependendo das configurações de segurança, poderá ser necessária uma confirmação também no e-mail atual."
+      );
+      setNovoEmail("");
+      setConfirmarEmail("");
+
+      if (data?.user) {
+        setUsuario(data.user);
+      }
+    }
+
+    setSalvandoEmail(false);
+  }
+
+  // Atualiza a senha pelo sistema de autenticação do Supabase.
+  async function alterarSenha(event) {
+    event.preventDefault();
+
+    setErroSenha("");
+    setMensagemSenha("");
+
+    if (!usuario) {
+      setErroSenha("Não foi possível identificar sua conta. Entre novamente.");
+      return;
+    }
+
+    if (novaSenha.length < 8) {
+      setErroSenha("A nova senha deve ter pelo menos 8 caracteres.");
+      return;
+    }
+
+    if (novaSenha !== confirmarSenha) {
+      setErroSenha("As senhas informadas não são iguais.");
+      return;
+    }
+
+    setSalvandoSenha(true);
+
+    const { error } = await supabase.auth.updateUser({
+      password: novaSenha,
+    });
+
+    if (error) {
+      console.error("Erro ao alterar senha:", error);
+      setErroSenha(error.message || "Não foi possível alterar sua senha.");
+    } else {
+      setMensagemSenha("Sua senha foi alterada com sucesso!");
+      setNovaSenha("");
+      setConfirmarSenha("");
+    }
+
+    setSalvandoSenha(false);
   }
 
   async function marcarComoLida(notificacao) {
@@ -983,7 +1090,7 @@ export default function Plataforma() {
 
             <h3 className="mb-4 mt-10 text-xl font-bold">Explore o Observatório</h3>
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {secoes.filter((item) => !["inicio", "preferencias"].includes(item.id)).map((item) => (
+              {secoes.filter((item) => item.id !== "inicio").map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setSecaoAtiva(item.id)}
@@ -1229,18 +1336,239 @@ export default function Plataforma() {
           </div>
         )}
 
-        {/* PREFERÊNCIAS */}
-        {secaoAtiva === "preferencias" && (
+        {/* MINHA CONTA */}
+        {secaoAtiva === "minha-conta" && (
+          <div className="space-y-8">
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">Minha conta</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Consulte seus dados de acesso e atualize seu e-mail ou sua senha.
+                Essas alterações são realizadas na autenticação do Supabase.
+              </p>
+            </div>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-100 text-2xl">👤</span>
+                <div>
+                  <h4 className="text-lg font-bold text-slate-900">Dados de acesso</h4>
+                  <p className="text-sm text-slate-500">Informações vinculadas à sua conta.</p>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  E-mail atual
+                </label>
+                <input
+                  type="email"
+                  value={usuario?.email || ""}
+                  readOnly
+                  className={`${classeCampo} bg-slate-100 text-slate-600`}
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Este é o endereço utilizado atualmente para entrar na plataforma.
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-5">
+                <h4 className="text-lg font-bold text-slate-900">✉️ Alterar e-mail</h4>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Informe o novo endereço e confirme-o para solicitar a alteração.
+                  O Supabase poderá enviar mensagens de confirmação para validar a mudança.
+                </p>
+              </div>
+
+              <form onSubmit={alterarEmail} className="space-y-4">
+                <div>
+                  <label htmlFor="novo-email" className="mb-2 block text-sm font-semibold text-slate-700">
+                    Novo e-mail
+                  </label>
+                  <input
+                    id="novo-email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={novoEmail}
+                    onChange={(e) => {
+                      setNovoEmail(e.target.value);
+                      setErroEmail("");
+                      setMensagemEmail("");
+                    }}
+                    placeholder="Digite seu novo e-mail"
+                    className={classeCampo}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="confirmar-email" className="mb-2 block text-sm font-semibold text-slate-700">
+                    Confirmar novo e-mail
+                  </label>
+                  <input
+                    id="confirmar-email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={confirmarEmail}
+                    onChange={(e) => {
+                      setConfirmarEmail(e.target.value);
+                      setErroEmail("");
+                      setMensagemEmail("");
+                    }}
+                    placeholder="Digite novamente seu novo e-mail"
+                    className={classeCampo}
+                  />
+                </div>
+
+                {erroEmail && (
+                  <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+                    {erroEmail}
+                  </div>
+                )}
+
+                {mensagemEmail && (
+                  <div role="status" className="rounded-lg border border-green-300 bg-green-50 p-4 text-sm leading-6 text-green-800">
+                    ✓ {mensagemEmail}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={salvandoEmail}
+                  className="rounded-lg bg-teal-700 px-6 py-3 font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {salvandoEmail ? "Enviando solicitação..." : "Solicitar alteração de e-mail"}
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-5">
+                <h4 className="text-lg font-bold text-slate-900">🔒 Alterar senha</h4>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Crie uma nova senha para acessar sua conta. Recomendamos utilizar uma combinação
+                  de letras, números e caracteres especiais.
+                </p>
+              </div>
+
+              <form onSubmit={alterarSenha} className="space-y-4">
+                <div>
+                  <label htmlFor="nova-senha" className="mb-2 block text-sm font-semibold text-slate-700">
+                    Nova senha
+                  </label>
+                  <input
+                    id="nova-senha"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={novaSenha}
+                    onChange={(e) => {
+                      setNovaSenha(e.target.value);
+                      setErroSenha("");
+                      setMensagemSenha("");
+                    }}
+                    placeholder="Digite sua nova senha"
+                    className={classeCampo}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Utilize pelo menos 8 caracteres.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="confirmar-senha" className="mb-2 block text-sm font-semibold text-slate-700">
+                    Confirmar nova senha
+                  </label>
+                  <input
+                    id="confirmar-senha"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={confirmarSenha}
+                    onChange={(e) => {
+                      setConfirmarSenha(e.target.value);
+                      setErroSenha("");
+                      setMensagemSenha("");
+                    }}
+                    placeholder="Digite novamente sua nova senha"
+                    className={classeCampo}
+                  />
+                </div>
+
+                {erroSenha && (
+                  <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+                    {erroSenha}
+                  </div>
+                )}
+
+                {mensagemSenha && (
+                  <div role="status" className="rounded-lg border border-green-300 bg-green-50 p-4 text-sm text-green-800">
+                    ✓ {mensagemSenha}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={salvandoSenha}
+                  className="rounded-lg bg-teal-700 px-6 py-3 font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {salvandoSenha ? "Atualizando senha..." : "Alterar minha senha"}
+                </button>
+              </form>
+            </section>
+
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+              <h4 className="font-bold text-blue-900">Dica de segurança</h4>
+              <p className="mt-2 text-sm leading-6 text-blue-900">
+                Não compartilhe sua senha com outras pessoas. O Observatório não precisa
+                que você informe sua senha por e-mail ou mensagem.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* DEFINIÇÕES */}
+        {secaoAtiva === "definicoes" && (
           <div>
             <div className="mb-6">
-              <h3 className="text-xl font-bold text-slate-900">Preferências de notificações</h3>
+              <h3 className="text-xl font-bold text-slate-900">Definições</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Gerencie as configurações da sua experiência no Observatório Saúde Única,
+                incluindo os canais de notificação e os municípios que deseja acompanhar.
+              </p>
+            </div>
+
+            <section className="mb-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-bold text-slate-900">Minha conta e segurança</h4>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Altere seu endereço de e-mail ou sua senha de acesso.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSecaoAtiva("minha-conta")}
+                  className="rounded-lg border border-teal-700 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50"
+                >
+                  Gerenciar minha conta
+                </button>
+              </div>
+            </section>
+
+            <div className="mb-6">
+              <h4 className="text-lg font-bold text-slate-900">Preferências de notificações</h4>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Personalize como deseja receber os alertas epidemiológicos e as informações publicadas pelo Observatório Saúde Única.
               </p>
             </div>
 
             {carregandoPreferencias ? (
-              <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-600">Carregando suas preferências...</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-600">Carregando suas definições...</div>
             ) : (
               <form onSubmit={salvarPreferencias} className="space-y-6">
                 <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1329,7 +1657,7 @@ export default function Plataforma() {
 
                 <div className="flex flex-wrap items-center gap-3">
                   <button type="submit" disabled={salvandoPreferencias} className="rounded-lg bg-teal-700 px-6 py-3 font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50">
-                    {salvandoPreferencias ? "Salvando..." : "Salvar preferências"}
+                    {salvandoPreferencias ? "Salvando..." : "Salvar definições"}
                   </button>
 
                   <button type="button" onClick={carregarPreferencias} disabled={salvandoPreferencias} className="rounded-lg border border-slate-300 bg-white px-6 py-3 font-semibold text-slate-700 hover:bg-slate-50">
