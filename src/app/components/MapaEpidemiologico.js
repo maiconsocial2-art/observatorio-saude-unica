@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -245,7 +246,6 @@ function obterDataHoje() {
   return `${ano}-${mes}-${dia}`;
 }
 
-// Considera somente alertas publicados e dentro do período de vigência.
 function alertaAtivo(alerta) {
   const hoje = obterDataHoje();
 
@@ -258,7 +258,6 @@ function alertaAtivo(alerta) {
   );
 }
 
-// Localiza os alertas que pertencem ao bairro selecionado.
 function obterAlertasDoBairro(alertas, municipio, bairro) {
   const chaveMunicipio = normalizar(municipio);
   const chaveBairroAtual = normalizar(bairro);
@@ -276,7 +275,6 @@ function obterAlertasDoBairro(alertas, municipio, bairro) {
       return false;
     }
 
-    // Sem localidade específica, o alerta vale para todo o município.
     if (!localidadeAlerta) return true;
 
     if (localidadeAlerta === chaveMunicipio) return true;
@@ -300,7 +298,6 @@ function filtrarAlertasPorDoenca(alertas, doencasSelecionadas) {
   });
 }
 
-// Prioridade: vermelho > amarelo > verde > cinza.
 function obterResumoBairro(registros, alertas = []) {
   const quantidade = registros.reduce(
     (total, registro) => total + obterQuantidade(registro),
@@ -410,6 +407,13 @@ async function carregarBairrosCONDER() {
   return criarFeatureCollection([...unicos.values()]);
 }
 
+/*
+ * CAMADA DO MAPA CORRIGIDA
+ *
+ * Agora o mapa filtra as geometrias ANTES de desenhá-las.
+ * Bairros de níveis desmarcados deixam de ser renderizados.
+ * Os filtros de doença também recalculam a classificação.
+ */
 function CamadaBairros({
   bairros,
   municipios,
@@ -422,18 +426,13 @@ function CamadaBairros({
 }) {
   const map = useMap();
 
-  const estilo = useCallback(
+  const obterDadosFiltradosBairro = useCallback(
     (feature) => {
       const nomeBairro = obterNomeBairro(feature);
+
       const nomeMunicipio = obterNomeMunicipioBairro(
         feature,
         municipios
-      );
-
-      const chave = chaveBairro(nomeMunicipio, nomeBairro);
-
-      const selecionado = bairrosSelecionados.some(
-        (item) => item.chave === chave
       );
 
       const registrosBairro = obterRegistrosDoBairro(
@@ -463,19 +462,14 @@ function CamadaBairros({
         alertasFiltrados
       );
 
-      const nivel = resumo.nivel;
-      const cor = CORES_ALERTA[nivel];
-
       return {
-        color: selecionado ? "#111827" : "#475569",
-        weight: selecionado ? 3 : 1,
-        opacity: 1,
-        fillColor: cor,
-        fillOpacity: alertasSelecionados.includes(nivel)
-          ? selecionado
-            ? 0.85
-            : 0.55
-          : 0.08,
+        nomeBairro,
+        nomeMunicipio,
+        chave: chaveBairro(nomeMunicipio, nomeBairro),
+        registros: registrosFiltrados,
+        alertas: alertasFiltrados,
+        resumo,
+        nivel: resumo.nivel,
       };
     },
     [
@@ -483,29 +477,65 @@ function CamadaBairros({
       registros,
       alertas,
       doencasSelecionadas,
-      alertasSelecionados,
+    ]
+  );
+
+  /*
+   * Esta lista contém somente os bairros cujo nível
+   * de alerta está marcado nos filtros.
+   */
+  const bairrosVisiveis = useMemo(() => {
+    if (!bairros?.features?.length) return [];
+
+    if (!alertasSelecionados.length) return [];
+
+    return bairros.features.filter((feature) => {
+      const dados = obterDadosFiltradosBairro(feature);
+
+      return alertasSelecionados.includes(dados.nivel);
+    });
+  }, [
+    bairros,
+    obterDadosFiltradosBairro,
+    alertasSelecionados,
+  ]);
+
+  const estilo = useCallback(
+    (feature) => {
+      const dados = obterDadosFiltradosBairro(feature);
+
+      const selecionado = bairrosSelecionados.some(
+        (item) => item.chave === dados.chave
+      );
+
+      return {
+        color: selecionado ? "#111827" : "#475569",
+        weight: selecionado ? 3 : 1,
+        opacity: 1,
+        fillColor: CORES_ALERTA[dados.nivel],
+        fillOpacity: selecionado ? 0.85 : 0.55,
+      };
+    },
+    [
+      obterDadosFiltradosBairro,
       bairrosSelecionados,
     ]
   );
 
   const interacao = useCallback(
     (feature, layer) => {
-      const nomeBairro = obterNomeBairro(feature);
-      const nomeMunicipio = obterNomeMunicipioBairro(
-        feature,
-        municipios
-      );
+      const dados = obterDadosFiltradosBairro(feature);
 
       layer.bindTooltip(
-        nomeMunicipio
-          ? `${nomeBairro} - ${nomeMunicipio}`
-          : nomeBairro,
+        dados.nomeMunicipio
+          ? `${dados.nomeBairro} - ${dados.nomeMunicipio}`
+          : dados.nomeBairro,
         { sticky: true }
       );
 
       layer.on({
         click: () => {
-          if (!nomeMunicipio) {
+          if (!dados.nomeMunicipio) {
             window.alert(
               "Não foi possível identificar o município deste bairro na camada cartográfica."
             );
@@ -513,30 +543,41 @@ function CamadaBairros({
           }
 
           alternarBairro({
-            chave: chaveBairro(nomeMunicipio, nomeBairro),
-            bairro: nomeBairro,
-            municipio: nomeMunicipio,
+            chave: dados.chave,
+            bairro: dados.nomeBairro,
+            municipio: dados.nomeMunicipio,
           });
         },
       });
     },
-    [municipios, alternarBairro]
+    [
+      obterDadosFiltradosBairro,
+      alternarBairro,
+    ]
   );
 
   useEffect(() => {
-    if (!bairros?.features?.length) return;
+    if (!bairrosVisiveis.length) return;
 
-    const camada = L.geoJSON(bairros, {
-      style: estilo,
-      onEachFeature: interacao,
-    });
+    const camada = L.geoJSON(
+      criarFeatureCollection(bairrosVisiveis),
+      {
+        style: estilo,
+        onEachFeature: interacao,
+      }
+    );
 
     camada.addTo(map);
 
     return () => {
       map.removeLayer(camada);
     };
-  }, [bairros, map, estilo, interacao]);
+  }, [
+    bairrosVisiveis,
+    map,
+    estilo,
+    interacao,
+  ]);
 
   return null;
 }
@@ -634,7 +675,6 @@ export default function MapaEpidemiologico() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
-  // Carregamento inicial dos dados cartográficos e epidemiológicos.
   useEffect(() => {
     let ativo = true;
 
@@ -655,7 +695,6 @@ export default function MapaEpidemiologico() {
           fetch(URL_MALHA_MUNICIPIOS),
           carregarBairrosCONDER(),
 
-          // Registros epidemiológicos publicados.
           supabase
             .from("registros_epidemiologicos")
             .select(`
@@ -676,7 +715,6 @@ export default function MapaEpidemiologico() {
             `)
             .eq("status", "publicado"),
 
-          // Alertas cadastrados na Central de Alertas.
           supabase
             .from("alertas")
             .select(`
@@ -697,7 +735,6 @@ export default function MapaEpidemiologico() {
             `)
             .eq("status", "publicado"),
 
-          // Catálogo usado para identificar a doença de cada alerta.
           supabase
             .from("catalogo_doencas")
             .select("id, nome")
@@ -788,8 +825,6 @@ export default function MapaEpidemiologico() {
     };
   }, []);
 
-  // Atualiza o mapa quando um alerta é publicado, editado ou encerrado.
-  // Também consulta novamente ao retornar à página e a cada minuto.
   useEffect(() => {
     let ativo = true;
 
