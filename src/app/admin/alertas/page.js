@@ -58,6 +58,8 @@ const formularioInicial = {
   status: "rascunho",
   data_inicio: obterDataHoje(),
   data_encerramento: "",
+  enviar_no_site: true,
+  enviar_por_email: false,
 };
 
 export default function AlertasPage() {
@@ -134,11 +136,11 @@ export default function AlertasPage() {
   }
 
   function atualizarCampo(evento) {
-    const { name, value } = evento.target;
+    const { name, value, type, checked } = evento.target;
 
     setFormulario((atual) => ({
       ...atual,
-      [name]: value,
+      [name]: type === "checkbox" ? checked : value,
     }));
   }
 
@@ -147,6 +149,7 @@ export default function AlertasPage() {
       ...formularioInicial,
       data_inicio: obterDataHoje(),
     });
+
     setEditando(null);
     setMensagem("");
   }
@@ -174,12 +177,30 @@ export default function AlertasPage() {
       return;
     }
 
+    if (
+      formulario.status === "publicado" &&
+      !formulario.enviar_no_site &&
+      !formulario.enviar_por_email
+    ) {
+      setMensagem(
+        "Selecione pelo menos um canal de distribuição para publicar o alerta."
+      );
+      return;
+    }
+
     setSalvando(true);
     setMensagem("");
 
     const {
       data: { user },
+      error: erroUsuario,
     } = await supabase.auth.getUser();
+
+    if (erroUsuario || !user) {
+      setMensagem("Não foi possível identificar o administrador.");
+      setSalvando(false);
+      return;
+    }
 
     const dados = {
       titulo: formulario.titulo.trim(),
@@ -193,6 +214,8 @@ export default function AlertasPage() {
       status: formulario.status,
       data_inicio: formulario.data_inicio,
       data_encerramento: formulario.data_encerramento || null,
+      enviar_no_site: formulario.enviar_no_site,
+      enviar_por_email: formulario.enviar_por_email,
       criado_por: user.id,
     };
 
@@ -243,6 +266,8 @@ export default function AlertasPage() {
       status: alerta.status || "rascunho",
       data_inicio: alerta.data_inicio || "",
       data_encerramento: alerta.data_encerramento || "",
+      enviar_no_site: alerta.enviar_no_site ?? true,
+      enviar_por_email: alerta.enviar_por_email ?? false,
     });
 
     setMensagem("");
@@ -318,6 +343,20 @@ export default function AlertasPage() {
     };
 
     return cores[nivel] || "bg-gray-100 text-gray-700";
+  }
+
+  function canaisDistribuicao(alerta) {
+    const canais = [];
+
+    if (alerta.enviar_no_site ?? true) {
+      canais.push("Site");
+    }
+
+    if (alerta.enviar_por_email ?? false) {
+      canais.push("E-mail");
+    }
+
+    return canais;
   }
 
   if (carregando) {
@@ -411,8 +450,8 @@ export default function AlertasPage() {
           </h2>
 
           <p className="mt-2 text-sm text-slate-600">
-            Preencha as informações e escolha se deseja publicar ou manter
-            o alerta como rascunho.
+            Preencha as informações e escolha os canais pelos quais
+            o alerta será distribuído.
           </p>
 
           <form onSubmit={salvarAlerta} className="mt-6 space-y-5">
@@ -420,6 +459,7 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Título do alerta *
               </label>
+
               <input
                 name="titulo"
                 value={formulario.titulo}
@@ -435,13 +475,17 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Doença ou risco relacionado
               </label>
+
               <select
                 name="doenca_id"
                 value={formulario.doenca_id}
                 onChange={atualizarCampo}
                 className="w-full rounded-lg border bg-white p-3"
               >
-                <option value="">Não vincular a uma doença específica</option>
+                <option value="">
+                  Não vincular a uma doença específica
+                </option>
+
                 {doencas.map((doenca) => (
                   <option key={doenca.id} value={doenca.id}>
                     {doenca.nome}
@@ -455,6 +499,7 @@ export default function AlertasPage() {
                 <label className="mb-2 block text-sm font-semibold">
                   Município *
                 </label>
+
                 <input
                   name="municipio"
                   value={formulario.municipio}
@@ -468,6 +513,7 @@ export default function AlertasPage() {
                 <label className="mb-2 block text-sm font-semibold">
                   Bairro ou localidade
                 </label>
+
                 <input
                   name="localidade"
                   value={formulario.localidade}
@@ -482,6 +528,7 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Nível do alerta *
               </label>
+
               <select
                 name="nivel_alerta"
                 value={formulario.nivel_alerta}
@@ -492,6 +539,7 @@ export default function AlertasPage() {
                 <option value="amarelo">Amarelo</option>
                 <option value="vermelho">Vermelho</option>
               </select>
+
               <p className="mt-2 text-xs text-slate-500">
                 A classificação deve ser definida pelo administrador
                 com base em informações e critérios documentados.
@@ -502,6 +550,7 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Descrição da situação *
               </label>
+
               <textarea
                 name="descricao"
                 value={formulario.descricao}
@@ -517,6 +566,7 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Recomendações à população
               </label>
+
               <textarea
                 name="recomendacoes"
                 value={formulario.recomendacoes}
@@ -532,6 +582,7 @@ export default function AlertasPage() {
                 <label className="mb-2 block text-sm font-semibold">
                   Data de início *
                 </label>
+
                 <input
                   type="date"
                   name="data_inicio"
@@ -546,6 +597,7 @@ export default function AlertasPage() {
                 <label className="mb-2 block text-sm font-semibold">
                   Data de encerramento
                 </label>
+
                 <input
                   type="date"
                   name="data_encerramento"
@@ -561,6 +613,7 @@ export default function AlertasPage() {
               <label className="mb-2 block text-sm font-semibold">
                 Fonte da informação
               </label>
+
               <input
                 name="fonte"
                 value={formulario.fonte}
@@ -570,10 +623,72 @@ export default function AlertasPage() {
               />
             </div>
 
+            <div className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+              <h3 className="text-base font-bold text-slate-900">
+                Canais de distribuição
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-600">
+                Escolha onde este alerta deverá ser divulgado.
+                Você pode selecionar uma ou as duas opções.
+              </p>
+
+              <div className="mt-4 space-y-4">
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-white p-4">
+                  <input
+                    type="checkbox"
+                    name="enviar_no_site"
+                    checked={formulario.enviar_no_site}
+                    onChange={atualizarCampo}
+                    className="mt-1 h-5 w-5 accent-teal-700"
+                  />
+
+                  <span>
+                    <span className="block font-semibold">
+                      Exibir no site
+                    </span>
+
+                    <span className="mt-1 block text-sm text-slate-600">
+                      Disponibilizar o alerta na área de notificações
+                      do Observatório.
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-white p-4">
+                  <input
+                    type="checkbox"
+                    name="enviar_por_email"
+                    checked={formulario.enviar_por_email}
+                    onChange={atualizarCampo}
+                    className="mt-1 h-5 w-5 accent-teal-700"
+                  />
+
+                  <span>
+                    <span className="block font-semibold">
+                      Enviar por e-mail
+                    </span>
+
+                    <span className="mt-1 block text-sm text-slate-600">
+                      Permitir o envio do alerta por e-mail aos usuários
+                      elegíveis que aceitaram receber mensagens.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <p className="mt-4 text-xs text-slate-500">
+                A seleção dos canais será salva junto com o alerta.
+                O envio efetivo de e-mails depende da integração com
+                um serviço de envio.
+              </p>
+            </div>
+
             <div>
               <label className="mb-2 block text-sm font-semibold">
                 Situação da publicação
               </label>
+
               <select
                 name="status"
                 value={formulario.status}
@@ -627,6 +742,7 @@ export default function AlertasPage() {
               <p className="font-semibold">
                 Nenhum alerta cadastrado.
               </p>
+
               <p className="mt-2 text-sm text-slate-600">
                 Os alertas publicados e os rascunhos aparecerão aqui.
               </p>
@@ -637,6 +753,7 @@ export default function AlertasPage() {
                 const encerrado = alertaEncerrado(alerta);
                 const ativo = alertaAtivo(alerta);
                 const agendado = alertaAgendado(alerta);
+                const canais = canaisDistribuicao(alerta);
 
                 return (
                   <article
@@ -701,20 +818,48 @@ export default function AlertasPage() {
                         <p className="text-sm font-semibold">
                           Recomendações
                         </p>
+
                         <p className="mt-2 whitespace-pre-wrap text-sm">
                           {alerta.recomendacoes}
                         </p>
                       </div>
                     )}
 
+                    <div className="mt-4 rounded-lg border bg-slate-50 p-3">
+                      <p className="text-sm font-semibold">
+                        Canais selecionados
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {canais.length > 0 ? (
+                          canais.map((canal) => (
+                            <span
+                              key={canal}
+                              className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800"
+                            >
+                              {canal === "Site"
+                                ? "🌐 Site"
+                                : "✉️ E-mail"}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-500">
+                            Nenhum canal selecionado.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="mt-4 space-y-1 text-xs text-slate-600">
                       <p>
                         Início: {formatarData(alerta.data_inicio)}
                       </p>
+
                       <p>
                         Encerramento:{" "}
                         {formatarData(alerta.data_encerramento)}
                       </p>
+
                       {alerta.fonte && <p>Fonte: {alerta.fonte}</p>}
                     </div>
 
