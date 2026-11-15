@@ -12,9 +12,6 @@ const URL_MALHA_MUNICIPIOS =
 const URL_MUNICIPIOS =
   "https://servicodados.ibge.gov.br/api/v1/localidades/estados/29/municipios";
 
-const URL_BAIRROS =
-  "https://mapas.conder.ba.gov.br/arcgis/rest/services/BAHIA/BAIRRO_GEO/MapServer/0/query";
-
 const CORES_ALERTA = {
   verde: "#22a447",
   amarelo: "#f4c430",
@@ -29,8 +26,12 @@ const NOMES_ALERTA = {
   nao_avaliado: "Alerta cinza",
 };
 
-const OPCOES_ALERTA = ["vermelho", "amarelo", "verde", "nao_avaliado"];
-const TAMANHO_PAGINA = 1000;
+const OPCOES_ALERTA = [
+  "vermelho",
+  "amarelo",
+  "verde",
+  "nao_avaliado",
+];
 
 function normalizar(valor) {
   return String(valor ?? "")
@@ -56,90 +57,61 @@ function primeiroValor(objeto, campos) {
   return null;
 }
 
-function obterNomeBairro(feature) {
-  return (
-    primeiroValor(feature?.properties, [
-      "NM_BAIRRO",
-      "NOME_BAIRRO",
-      "BAIRRO",
-      "bairro",
-      "nome",
-      "NOME",
-      "NM_BAIR",
-      "NM_BAIRRO_",
-      "DS_BAIRRO",
-      "LOCALIDADE",
-      "NM_LOCALIDADE",
-    ]) || "Bairro sem identificação"
+function obterCodigoFeature(feature) {
+  const propriedades = feature?.properties || {};
+
+  return String(
+    primeiroValor(propriedades, [
+      "id",
+      "CD_MUN",
+      "CD_MUNICIPIO",
+      "GEOCODIGO",
+      "codigo",
+    ]) ||
+      feature?.id ||
+      ""
   );
 }
 
-function obterNomeMunicipioBairro(feature, municipios = []) {
+function obterMunicipioFeature(feature, municipios) {
+  const codigo = obterCodigoFeature(feature);
+
+  if (codigo) {
+    const encontrado = municipios.find((municipio) => {
+      const id = String(municipio.id);
+
+      return (
+        id === codigo ||
+        id.startsWith(codigo) ||
+        codigo.startsWith(id)
+      );
+    });
+
+    if (encontrado) return encontrado;
+  }
+
   const propriedades = feature?.properties || {};
 
   const nome = primeiroValor(propriedades, [
+    "NM_MUN",
     "NM_MUNICIPIO",
     "NOME_MUNICIPIO",
     "MUNICIPIO",
     "municipio",
-    "NM_MUN",
-    "NOME_MUN",
-    "NM_MUNIC",
-    "NM_MUNICIP",
-    "NOME_MUNI",
-    "NM_CIDADE",
-    "CIDADE",
+    "NOME",
+    "name",
   ]);
 
-  if (nome) return String(nome);
-
-  const codigo = primeiroValor(propriedades, [
-    "CD_MUNICIPIO",
-    "CD_MUN",
-    "COD_MUNICIPIO",
-    "GEOCODIGO",
-    "CD_GEOCOD",
-    "ID_MUNICIPIO",
-  ]);
-
-  if (codigo) {
-    const municipio = municipios.find((item) => {
-      const codigoIBGE = String(item.id || "");
-
-      return (
-        codigoIBGE === String(codigo) ||
-        codigoIBGE.startsWith(String(codigo)) ||
-        String(codigo).startsWith(codigoIBGE)
-      );
-    });
-
-    if (municipio) return municipio.nome;
+  if (nome) {
+    return (
+      municipios.find(
+        (municipio) =>
+          normalizar(municipio.nome) === normalizar(nome)
+      ) || null
+    );
   }
 
-  return "";
-}
-
-function obterIdGeografico(feature) {
-  const propriedades = feature?.properties || {};
-
-  return (
-    primeiroValor(propriedades, [
-      "OBJECTID",
-      "FID",
-      "ID",
-      "id",
-      "CD_BAIRRO",
-      "COD_BAIRRO",
-      "GEOCODIGO",
-      "ID_BAIRRO",
-    ]) ||
-    feature?.id ||
-    null
-  );
-}
-
-function chaveBairro(nomeMunicipio, nomeBairro) {
-  return `${normalizar(nomeMunicipio)}|${normalizar(nomeBairro)}`;
+  return null;
 }
 
 function obterNivelAlerta(registro) {
@@ -202,30 +174,27 @@ function obterNomeDoenca(registro) {
   );
 }
 
-function obterRegistrosDoBairro(registros, municipio, bairro) {
-  const chave = chaveBairro(municipio, bairro);
+function obterRegistrosDoMunicipio(registros, municipio) {
+  const chave = normalizar(municipio);
 
   return registros.filter((registro) => {
-    const municipioRegistro = primeiroValor(registro, [
+    const nomeMunicipio = primeiroValor(registro, [
       "municipio",
       "cidade",
       "nome_municipio",
     ]);
 
-    const bairroRegistro = primeiroValor(registro, [
-      "localidade",
-      "bairro",
-      "nome_bairro",
-      "local",
-    ]);
-
-    if (!municipioRegistro || !bairroRegistro) return false;
-
-    return chaveBairro(municipioRegistro, bairroRegistro) === chave;
+    return (
+      nomeMunicipio &&
+      normalizar(nomeMunicipio) === chave
+    );
   });
 }
 
-function filtrarRegistrosPorDoenca(registros, doencasSelecionadas) {
+function filtrarRegistrosPorDoenca(
+  registros,
+  doencasSelecionadas
+) {
   if (!doencasSelecionadas.length) return registros;
 
   return registros.filter((registro) => {
@@ -253,37 +222,27 @@ function alertaAtivo(alerta) {
     alerta?.status === "publicado" &&
     Boolean(alerta?.data_inicio) &&
     alerta.data_inicio <= hoje &&
-    (!alerta.data_encerramento || alerta.data_encerramento >= hoje) &&
+    (!alerta.data_encerramento ||
+      alerta.data_encerramento >= hoje) &&
     !alerta.encerrado_em
   );
 }
 
-function obterAlertasDoBairro(alertas, municipio, bairro) {
-  const chaveMunicipio = normalizar(municipio);
-  const chaveBairroAtual = normalizar(bairro);
+function obterAlertasDoMunicipio(alertas, municipio) {
+  const chave = normalizar(municipio);
 
   return alertas.filter((alerta) => {
-    if (!alertaAtivo(alerta)) return false;
-
-    const municipioAlerta = normalizar(alerta.municipio);
-    const localidadeAlerta = normalizar(alerta.localidade);
-
-    if (
-      !municipioAlerta ||
-      municipioAlerta !== chaveMunicipio
-    ) {
-      return false;
-    }
-
-    if (!localidadeAlerta) return true;
-
-    if (localidadeAlerta === chaveMunicipio) return true;
-
-    return localidadeAlerta === chaveBairroAtual;
+    return (
+      alertaAtivo(alerta) &&
+      normalizar(alerta.municipio) === chave
+    );
   });
 }
 
-function filtrarAlertasPorDoenca(alertas, doencasSelecionadas) {
+function filtrarAlertasPorDoenca(
+  alertas,
+  doencasSelecionadas
+) {
   if (!doencasSelecionadas.length) return alertas;
 
   return alertas.filter((alerta) => {
@@ -298,7 +257,7 @@ function filtrarAlertasPorDoenca(alertas, doencasSelecionadas) {
   });
 }
 
-function obterResumoBairro(registros, alertas = []) {
+function obterResumoMunicipio(registros, alertas = []) {
   const quantidade = registros.reduce(
     (total, registro) => total + obterQuantidade(registro),
     0
@@ -327,14 +286,47 @@ function obterResumoBairro(registros, alertas = []) {
   };
 }
 
-function formatarData(data) {
-  if (!data) return "Data não informada";
+function obterDadosMunicipio(
+  municipio,
+  registros,
+  alertas,
+  doencasSelecionadas
+) {
+  const registrosMunicipio = obterRegistrosDoMunicipio(
+    registros,
+    municipio.nome
+  );
 
-  const valor = new Date(`${data}T00:00:00`);
+  const registrosFiltrados = filtrarRegistrosPorDoenca(
+    registrosMunicipio,
+    doencasSelecionadas
+  );
 
-  if (Number.isNaN(valor.getTime())) return String(data);
+  const alertasMunicipio = obterAlertasDoMunicipio(
+    alertas,
+    municipio.nome
+  );
 
-  return valor.toLocaleDateString("pt-BR");
+  const alertasFiltrados = filtrarAlertasPorDoenca(
+    alertasMunicipio,
+    doencasSelecionadas
+  );
+
+  return {
+    ...municipio,
+    ...obterResumoMunicipio(
+      registrosFiltrados,
+      alertasFiltrados
+    ),
+    doencas: [
+      ...new Set([
+        ...registrosFiltrados.map(obterNomeDoenca),
+        ...alertasFiltrados
+          .map((alerta) => alerta.doenca_nome)
+          .filter(Boolean),
+      ]),
+    ],
+  };
 }
 
 function criarFeatureCollection(features) {
@@ -344,132 +336,44 @@ function criarFeatureCollection(features) {
   };
 }
 
-async function carregarBairrosCONDER() {
-  let inicio = 0;
-  const todos = [];
-
-  while (true) {
-    const parametros = new URLSearchParams({
-      where: "1=1",
-      outFields: "*",
-      returnGeometry: "true",
-      outSR: "4326",
-      f: "geojson",
-      resultOffset: String(inicio),
-      resultRecordCount: String(TAMANHO_PAGINA),
-    });
-
-    const resposta = await fetch(
-      `${URL_BAIRROS}?${parametros.toString()}`
-    );
-
-    if (!resposta.ok) {
-      throw new Error(
-        "Não foi possível carregar os bairros da CONDER."
-      );
-    }
-
-    const dados = await resposta.json();
-
-    if (dados.error) {
-      throw new Error(
-        dados.error.message ||
-          "Erro ao consultar os bairros da CONDER."
-      );
-    }
-
-    const features = dados.features || [];
-
-    todos.push(...features);
-
-    if (
-      features.length < TAMANHO_PAGINA ||
-      dados.exceededTransferLimit === false
-    ) {
-      break;
-    }
-
-    if (features.length === 0) break;
-
-    inicio += features.length;
-  }
-
-  const unicos = new Map();
-
-  todos.forEach((feature, indice) => {
-    const id =
-      obterIdGeografico(feature) ||
-      `${obterNomeBairro(feature)}-${indice}`;
-
-    unicos.set(id, feature);
-  });
-
-  return criarFeatureCollection([...unicos.values()]);
-}
-
 /*
- * CAMADA DO MAPA CORRIGIDA
+ * CAMADA MUNICIPAL
  *
- * Agora o mapa filtra as geometrias ANTES de desenhá-las.
- * Bairros de níveis desmarcados deixam de ser renderizados.
- * Os filtros de doença também recalculam a classificação.
+ * Utiliza exclusivamente a malha municipal do IBGE.
+ * Cada polígono representa um município da Bahia.
+ * Não utiliza bairros nem a camada cartográfica da CONDER.
  */
-function CamadaBairros({
-  bairros,
+function CamadaMunicipios({
+  municipiosMalha,
   municipios,
   registros,
   alertas,
   doencasSelecionadas,
   alertasSelecionados,
-  bairrosSelecionados,
-  alternarBairro,
+  municipiosSelecionados,
+  alternarMunicipio,
 }) {
   const map = useMap();
 
-  const obterDadosFiltradosBairro = useCallback(
+  const obterDadosFeature = useCallback(
     (feature) => {
-      const nomeBairro = obterNomeBairro(feature);
-
-      const nomeMunicipio = obterNomeMunicipioBairro(
+      const municipio = obterMunicipioFeature(
         feature,
         municipios
       );
 
-      const registrosBairro = obterRegistrosDoBairro(
+      if (!municipio) return null;
+
+      const dados = obterDadosMunicipio(
+        municipio,
         registros,
-        nomeMunicipio,
-        nomeBairro
-      );
-
-      const registrosFiltrados = filtrarRegistrosPorDoenca(
-        registrosBairro,
-        doencasSelecionadas
-      );
-
-      const alertasBairro = obterAlertasDoBairro(
         alertas,
-        nomeMunicipio,
-        nomeBairro
-      );
-
-      const alertasFiltrados = filtrarAlertasPorDoenca(
-        alertasBairro,
         doencasSelecionadas
-      );
-
-      const resumo = obterResumoBairro(
-        registrosFiltrados,
-        alertasFiltrados
       );
 
       return {
-        nomeBairro,
-        nomeMunicipio,
-        chave: chaveBairro(nomeMunicipio, nomeBairro),
-        registros: registrosFiltrados,
-        alertas: alertasFiltrados,
-        resumo,
-        nivel: resumo.nivel,
+        ...dados,
+        feature,
       };
     },
     [
@@ -480,87 +384,90 @@ function CamadaBairros({
     ]
   );
 
-  /*
-   * Esta lista contém somente os bairros cujo nível
-   * de alerta está marcado nos filtros.
-   */
-  const bairrosVisiveis = useMemo(() => {
-    if (!bairros?.features?.length) return [];
+  const municipiosVisiveis = useMemo(() => {
+    if (!municipiosMalha?.features?.length) return [];
 
     if (!alertasSelecionados.length) return [];
 
-    return bairros.features.filter((feature) => {
-      const dados = obterDadosFiltradosBairro(feature);
+    return municipiosMalha.features.filter((feature) => {
+      const dados = obterDadosFeature(feature);
 
-      return alertasSelecionados.includes(dados.nivel);
+      return (
+        dados &&
+        alertasSelecionados.includes(dados.nivel)
+      );
     });
   }, [
-    bairros,
-    obterDadosFiltradosBairro,
+    municipiosMalha,
+    obterDadosFeature,
     alertasSelecionados,
   ]);
 
   const estilo = useCallback(
     (feature) => {
-      const dados = obterDadosFiltradosBairro(feature);
+      const dados = obterDadosFeature(feature);
 
-      const selecionado = bairrosSelecionados.some(
-        (item) => item.chave === dados.chave
+      if (!dados) {
+        return {
+          color: "#64748b",
+          weight: 0.5,
+          fillColor: "#94a3b8",
+          fillOpacity: 0.3,
+        };
+      }
+
+      const selecionado = municipiosSelecionados.some(
+        (item) => String(item.id) === String(dados.id)
       );
 
       return {
         color: selecionado ? "#111827" : "#475569",
-        weight: selecionado ? 3 : 1,
+        weight: selecionado ? 2.5 : 0.8,
         opacity: 1,
         fillColor: CORES_ALERTA[dados.nivel],
-        fillOpacity: selecionado ? 0.85 : 0.55,
+        fillOpacity: selecionado ? 0.9 : 0.7,
       };
     },
     [
-      obterDadosFiltradosBairro,
-      bairrosSelecionados,
+      obterDadosFeature,
+      municipiosSelecionados,
     ]
   );
 
   const interacao = useCallback(
     (feature, layer) => {
-      const dados = obterDadosFiltradosBairro(feature);
+      const dados = obterDadosFeature(feature);
+
+      if (!dados) return;
 
       layer.bindTooltip(
-        dados.nomeMunicipio
-          ? `${dados.nomeBairro} - ${dados.nomeMunicipio}`
-          : dados.nomeBairro,
-        { sticky: true }
+        `<strong>${dados.nome}</strong><br/>` +
+          `${NOMES_ALERTA[dados.nivel]}<br/>` +
+          `${dados.registros} registro(s)<br/>` +
+          `${dados.quantidade.toLocaleString("pt-BR")} caso(s)`,
+        {
+          sticky: true,
+          direction: "top",
+        }
       );
 
       layer.on({
         click: () => {
-          if (!dados.nomeMunicipio) {
-            window.alert(
-              "Não foi possível identificar o município deste bairro na camada cartográfica."
-            );
-            return;
-          }
-
-          alternarBairro({
-            chave: dados.chave,
-            bairro: dados.nomeBairro,
-            municipio: dados.nomeMunicipio,
+          alternarMunicipio({
+            id: dados.id,
+            nome: dados.nome,
           });
         },
       });
     },
-    [
-      obterDadosFiltradosBairro,
-      alternarBairro,
-    ]
+    [obterDadosFeature, alternarMunicipio]
   );
 
   useEffect(() => {
-    if (!bairrosVisiveis.length) return;
+    if (!municipiosVisiveis.length) return;
 
     const camada = L.geoJSON(
-      criarFeatureCollection(bairrosVisiveis),
+      criarFeatureCollection(municipiosVisiveis),
       {
         style: estilo,
         onEachFeature: interacao,
@@ -573,7 +480,7 @@ function CamadaBairros({
       map.removeLayer(camada);
     };
   }, [
-    bairrosVisiveis,
+    municipiosVisiveis,
     map,
     estilo,
     interacao,
@@ -583,68 +490,53 @@ function CamadaBairros({
 }
 
 function AjustarVisualizacao({
-  bairros,
   municipiosMalha,
-  municipioSelecionado,
+  municipiosSelecionados,
 }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!municipioSelecionado) {
+    if (!municipiosMalha?.features?.length) return;
+
+    if (!municipiosSelecionados.length) {
       map.setView([-12.8, -41.5], 6);
       return;
     }
 
-    const municipio = municipiosMalha?.features?.find(
-      (feature) => {
-        const propriedades = feature.properties || {};
-
-        const codigo = String(
-          propriedades.id ||
-            propriedades.CD_MUN ||
-            propriedades.CD_MUNICIPIO ||
-            feature.id ||
-            ""
-        );
-
-        return (
-          codigo === String(municipioSelecionado.id) ||
-          codigo.startsWith(String(municipioSelecionado.id))
-        );
-      }
+    const codigosSelecionados = new Set(
+      municipiosSelecionados.map((item) => String(item.id))
     );
 
-    if (municipio) {
-      const camada = L.geoJSON(municipio);
+    const featuresSelecionadas =
+      municipiosMalha.features.filter((feature) => {
+        const codigo = obterCodigoFeature(feature);
 
-      map.fitBounds(camada.getBounds(), {
-        padding: [25, 25],
+        return [...codigosSelecionados].some(
+          (id) =>
+            id === codigo ||
+            id.startsWith(codigo) ||
+            codigo.startsWith(id)
+        );
       });
 
-      return;
-    }
+    if (!featuresSelecionadas.length) return;
 
-    const featuresMunicipio = (bairros?.features || []).filter(
-      (feature) =>
-        normalizar(
-          obterNomeMunicipioBairro(feature, [municipioSelecionado])
-        ) === normalizar(municipioSelecionado.nome)
+    const camada = L.geoJSON(
+      criarFeatureCollection(featuresSelecionadas)
     );
 
-    if (featuresMunicipio.length) {
-      const camada = L.geoJSON(
-        criarFeatureCollection(featuresMunicipio)
-      );
+    const limites = camada.getBounds();
 
-      map.fitBounds(camada.getBounds(), {
-        padding: [25, 25],
+    if (limites.isValid()) {
+      map.fitBounds(limites, {
+        padding: [30, 30],
+        maxZoom: 9,
       });
     }
   }, [
     map,
-    bairros,
     municipiosMalha,
-    municipioSelecionado,
+    municipiosSelecionados,
   ]);
 
   return null;
@@ -653,18 +545,13 @@ function AjustarVisualizacao({
 export default function MapaEpidemiologico() {
   const [municipios, setMunicipios] = useState([]);
   const [municipiosMalha, setMunicipiosMalha] = useState(null);
-  const [bairros, setBairros] = useState(null);
   const [registros, setRegistros] = useState([]);
   const [alertas, setAlertas] = useState([]);
 
-  const [municipioSelecionado, setMunicipioSelecionado] =
-    useState(null);
+  const [municipiosSelecionados, setMunicipiosSelecionados] =
+    useState([]);
 
   const [buscaMunicipio, setBuscaMunicipio] = useState("");
-  const [buscaBairro, setBuscaBairro] = useState("");
-
-  const [bairrosSelecionados, setBairrosSelecionados] =
-    useState([]);
 
   const [doencasSelecionadas, setDoencasSelecionadas] =
     useState([]);
@@ -686,14 +573,12 @@ export default function MapaEpidemiologico() {
         const [
           respostaMunicipios,
           respostaMalha,
-          dadosBairros,
           respostaRegistros,
           respostaAlertas,
           respostaDoencas,
         ] = await Promise.all([
           fetch(URL_MUNICIPIOS),
           fetch(URL_MALHA_MUNICIPIOS),
-          carregarBairrosCONDER(),
 
           supabase
             .from("registros_epidemiologicos")
@@ -770,19 +655,17 @@ export default function MapaEpidemiologico() {
 
         if (!ativo) return;
 
-        setMunicipios(
-          listaMunicipios
-            .map((municipio) => ({
-              id: municipio.id,
-              nome: municipio.nome,
-            }))
-            .sort((a, b) =>
-              a.nome.localeCompare(b.nome, "pt-BR")
-            )
-        );
+        const municipiosOrganizados = listaMunicipios
+          .map((municipio) => ({
+            id: municipio.id,
+            nome: municipio.nome,
+          }))
+          .sort((a, b) =>
+            a.nome.localeCompare(b.nome, "pt-BR")
+          );
 
+        setMunicipios(municipiosOrganizados);
         setMunicipiosMalha(malha);
-        setBairros(dadosBairros);
         setRegistros(respostaRegistros.data || []);
 
         const nomesDoencas = new Map(
@@ -932,19 +815,19 @@ export default function MapaEpidemiologico() {
     };
   }, []);
 
-  const alternarBairro = useCallback((bairro) => {
-    setBairrosSelecionados((anteriores) => {
+  const alternarMunicipio = useCallback((municipio) => {
+    setMunicipiosSelecionados((anteriores) => {
       const existe = anteriores.some(
-        (item) => item.chave === bairro.chave
+        (item) => String(item.id) === String(municipio.id)
       );
 
       if (existe) {
         return anteriores.filter(
-          (item) => item.chave !== bairro.chave
+          (item) => String(item.id) !== String(municipio.id)
         );
       }
 
-      return [...anteriores, bairro];
+      return [...anteriores, municipio];
     });
   }, []);
 
@@ -955,98 +838,6 @@ export default function MapaEpidemiologico() {
       normalizar(municipio.nome).includes(busca)
     );
   }, [municipios, buscaMunicipio]);
-
-  const bairrosDoMunicipio = useMemo(() => {
-    if (!municipioSelecionado || !bairros?.features) {
-      return [];
-    }
-
-    const encontrados = bairros.features
-      .filter((feature) => {
-        const nomeMunicipio = obterNomeMunicipioBairro(
-          feature,
-          municipios
-        );
-
-        return (
-          normalizar(nomeMunicipio) ===
-          normalizar(municipioSelecionado.nome)
-        );
-      })
-      .map((feature) => {
-        const nome = obterNomeBairro(feature);
-
-        const chave = chaveBairro(
-          municipioSelecionado.nome,
-          nome
-        );
-
-        return {
-          nome,
-          chave,
-          municipio: municipioSelecionado.nome,
-        };
-      });
-
-    const unicos = new Map();
-
-    encontrados.forEach((bairro) => {
-      unicos.set(bairro.chave, bairro);
-    });
-
-    return [...unicos.values()].sort((a, b) =>
-      a.nome.localeCompare(b.nome, "pt-BR")
-    );
-  }, [municipioSelecionado, bairros, municipios]);
-
-  const bairrosFiltrados = useMemo(() => {
-    const busca = normalizar(buscaBairro);
-
-    return bairrosDoMunicipio.filter((bairro) => {
-      const correspondeBusca = normalizar(
-        bairro.nome
-      ).includes(busca);
-
-      const registrosBairro = obterRegistrosDoBairro(
-        registros,
-        bairro.municipio,
-        bairro.nome
-      );
-
-      const registrosDoencas = filtrarRegistrosPorDoenca(
-        registrosBairro,
-        doencasSelecionadas
-      );
-
-      const alertasBairro = obterAlertasDoBairro(
-        alertas,
-        bairro.municipio,
-        bairro.nome
-      );
-
-      const alertasDoencas = filtrarAlertasPorDoenca(
-        alertasBairro,
-        doencasSelecionadas
-      );
-
-      const nivel = obterResumoBairro(
-        registrosDoencas,
-        alertasDoencas
-      ).nivel;
-
-      const correspondeAlerta =
-        alertasSelecionados.includes(nivel);
-
-      return correspondeBusca && correspondeAlerta;
-    });
-  }, [
-    bairrosDoMunicipio,
-    buscaBairro,
-    registros,
-    alertas,
-    doencasSelecionadas,
-    alertasSelecionados,
-  ]);
 
   const listaDoencas = useMemo(() => {
     const nomes = [
@@ -1062,27 +853,43 @@ export default function MapaEpidemiologico() {
     );
   }, [registros, alertas]);
 
+  const municipiosComDados = useMemo(() => {
+    return municipiosSelecionados.map((municipio) =>
+      obterDadosMunicipio(
+        municipio,
+        registros,
+        alertas,
+        doencasSelecionadas
+      )
+    );
+  }, [
+    municipiosSelecionados,
+    registros,
+    alertas,
+    doencasSelecionadas,
+  ]);
+
   const resumoGeral = useMemo(() => {
-    const filtrados = filtrarRegistrosPorDoenca(
+    const registrosFiltrados = filtrarRegistrosPorDoenca(
       registros,
       doencasSelecionadas
     );
 
-    const totalCasos = filtrados.reduce(
+    const casos = registrosFiltrados.reduce(
       (total, registro) =>
         total + obterQuantidade(registro),
       0
     );
 
     return {
-      registros: filtrados.length,
-      casos: totalCasos,
-      bairros: bairrosSelecionados.length,
+      registros: registrosFiltrados.length,
+      casos,
+      municipios: municipiosSelecionados.length,
     };
   }, [
     registros,
     doencasSelecionadas,
-    bairrosSelecionados,
+    municipiosSelecionados,
   ]);
 
   const alternarDoenca = (nome) => {
@@ -1108,85 +915,16 @@ export default function MapaEpidemiologico() {
   const limparFiltros = () => {
     setDoencasSelecionadas([]);
     setAlertasSelecionados(OPCOES_ALERTA);
-    setBuscaBairro("");
     setBuscaMunicipio("");
   };
 
-  const selecionarTodosBairrosVisiveis = () => {
-    setBairrosSelecionados((anteriores) => {
-      const mapa = new Map(
-        anteriores.map((item) => [item.chave, item])
-      );
-
-      bairrosFiltrados.forEach((bairro) => {
-        mapa.set(bairro.chave, {
-          chave: bairro.chave,
-          bairro: bairro.nome,
-          municipio: bairro.municipio,
-        });
-      });
-
-      return [...mapa.values()];
-    });
+  const limparMunicipiosSelecionados = () => {
+    setMunicipiosSelecionados([]);
   };
 
-  const limparBairrosSelecionados = () => {
-    setBairrosSelecionados([]);
+  const selecionarMunicipioNaLista = (municipio) => {
+    alternarMunicipio(municipio);
   };
-
-  const selecionarMunicipio = (id) => {
-    const municipio = municipios.find(
-      (item) => String(item.id) === String(id)
-    );
-
-    setMunicipioSelecionado(municipio || null);
-    setBuscaBairro("");
-  };
-
-  const detalhesBairrosSelecionados = useMemo(() => {
-    return bairrosSelecionados.map((bairro) => {
-      const registrosBairro = obterRegistrosDoBairro(
-        registros,
-        bairro.municipio,
-        bairro.bairro
-      );
-
-      const registrosDoencas = filtrarRegistrosPorDoenca(
-        registrosBairro,
-        doencasSelecionadas
-      );
-
-      const alertasBairro = filtrarAlertasPorDoenca(
-        obterAlertasDoBairro(
-          alertas,
-          bairro.municipio,
-          bairro.bairro
-        ),
-        doencasSelecionadas
-      );
-
-      return {
-        ...bairro,
-        ...obterResumoBairro(
-          registrosDoencas,
-          alertasBairro
-        ),
-        doencas: [
-          ...new Set([
-            ...registrosDoencas.map(obterNomeDoenca),
-            ...alertasBairro
-              .map((alerta) => alerta.doenca_nome)
-              .filter(Boolean),
-          ]),
-        ],
-      };
-    });
-  }, [
-    bairrosSelecionados,
-    registros,
-    alertas,
-    doencasSelecionadas,
-  ]);
 
   return (
     <div className="space-y-5">
@@ -1213,11 +951,11 @@ export default function MapaEpidemiologico() {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-500">
-            Bairros selecionados
+            Municípios selecionados
           </p>
 
           <p className="mt-1 text-2xl font-bold text-slate-900">
-            {resumoGeral.bairros}
+            {resumoGeral.municipios}
           </p>
         </div>
       </div>
@@ -1230,7 +968,7 @@ export default function MapaEpidemiologico() {
 
       {carregando ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-600">
-          Carregando municípios, bairros e registros epidemiológicos...
+          Carregando municípios e registros epidemiológicos...
         </div>
       ) : (
         <>
@@ -1242,7 +980,7 @@ export default function MapaEpidemiologico() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Escolha uma cidade para localizar seus bairros. Você pode selecionar bairros de municípios diferentes.
+                  Pesquise e selecione os municípios da Bahia que deseja acompanhar. Você pode selecionar vários municípios.
                 </p>
               </div>
 
@@ -1255,135 +993,67 @@ export default function MapaEpidemiologico() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Buscar município da Bahia
-                </label>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Buscar município da Bahia
+              </label>
 
-                <input
-                  type="text"
-                  value={buscaMunicipio}
-                  onChange={(event) =>
-                    setBuscaMunicipio(event.target.value)
-                  }
-                  placeholder="Digite o nome da cidade..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
+              <input
+                type="text"
+                value={buscaMunicipio}
+                onChange={(event) =>
+                  setBuscaMunicipio(event.target.value)
+                }
+                placeholder="Digite o nome do município..."
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
 
-                <select
-                  value={municipioSelecionado?.id || ""}
-                  onChange={(event) =>
-                    selecionarMunicipio(event.target.value)
-                  }
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-slate-500">
+                  {municipiosFiltrados.length} município(s) na busca
+                </span>
+
+                <button
+                  type="button"
+                  onClick={limparMunicipiosSelecionados}
+                  disabled={!municipiosSelecionados.length}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="">
-                    Selecione um município
-                  </option>
-
-                  {municipiosFiltrados.map((municipio) => (
-                    <option
-                      key={municipio.id}
-                      value={municipio.id}
-                    >
-                      {municipio.nome}
-                    </option>
-                  ))}
-                </select>
+                  Limpar municípios selecionados
+                </button>
               </div>
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Buscar bairro
-                </label>
+              <div className="mt-3 grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-slate-200 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                {municipiosFiltrados.map((municipio) => {
+                  const selecionado = municipiosSelecionados.some(
+                    (item) =>
+                      String(item.id) === String(municipio.id)
+                  );
 
-                <input
-                  type="text"
-                  value={buscaBairro}
-                  onChange={(event) =>
-                    setBuscaBairro(event.target.value)
-                  }
-                  placeholder="Digite o nome do bairro..."
-                  disabled={!municipioSelecionado}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-slate-100"
-                />
+                  return (
+                    <label
+                      key={municipio.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm transition ${
+                        selecionado
+                          ? "border-blue-400 bg-blue-50 text-blue-900"
+                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selecionado}
+                        onChange={() =>
+                          selecionarMunicipioNaLista(municipio)
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                      />
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={selecionarTodosBairrosVisiveis}
-                    disabled={!bairrosFiltrados.length}
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Selecionar bairros visíveis
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={limparBairrosSelecionados}
-                    disabled={!bairrosSelecionados.length}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Limpar seleção
-                  </button>
-                </div>
+                      <span>{municipio.nome}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
-
-            {municipioSelecionado && (
-              <div className="mt-4">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-800">
-                    Bairros de {municipioSelecionado.nome}
-                  </h3>
-
-                  <span className="text-xs text-slate-500">
-                    {bairrosFiltrados.length} bairro(s) encontrados
-                  </span>
-                </div>
-
-                {bairrosFiltrados.length ? (
-                  <div className="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-lg border border-slate-200 p-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {bairrosFiltrados.map((bairro) => {
-                      const selecionado = bairrosSelecionados.some(
-                        (item) => item.chave === bairro.chave
-                      );
-
-                      return (
-                        <label
-                          key={bairro.chave}
-                          className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm transition ${
-                            selecionado
-                              ? "border-blue-400 bg-blue-50 text-blue-900"
-                              : "border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selecionado}
-                            onChange={() =>
-                              alternarBairro({
-                                chave: bairro.chave,
-                                bairro: bairro.nome,
-                                municipio: bairro.municipio,
-                              })
-                            }
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                          />
-
-                          <span>{bairro.nome}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500">
-                    Nenhum bairro encontrado para este município com os filtros atuais.
-                  </p>
-                )}
-              </div>
-            )}
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1393,7 +1063,7 @@ export default function MapaEpidemiologico() {
               </h2>
 
               <p className="text-sm text-slate-500">
-                Combine doenças e níveis de alerta para atualizar as cores do mapa.
+                Combine doenças e níveis de alerta para atualizar as cores dos municípios no mapa.
               </p>
             </div>
 
@@ -1493,7 +1163,7 @@ export default function MapaEpidemiologico() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Clique nos bairros para selecionar ou remover da seleção.
+                  Cada área delimitada representa um município. Clique em um município para selecioná-lo ou removê-lo da seleção.
                 </p>
               </div>
 
@@ -1528,23 +1198,22 @@ export default function MapaEpidemiologico() {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                {bairros && (
-                  <CamadaBairros
-                    bairros={bairros}
+                {municipiosMalha && (
+                  <CamadaMunicipios
+                    municipiosMalha={municipiosMalha}
                     municipios={municipios}
                     registros={registros}
                     alertas={alertas}
                     doencasSelecionadas={doencasSelecionadas}
                     alertasSelecionados={alertasSelecionados}
-                    bairrosSelecionados={bairrosSelecionados}
-                    alternarBairro={alternarBairro}
+                    municipiosSelecionados={municipiosSelecionados}
+                    alternarMunicipio={alternarMunicipio}
                   />
                 )}
 
                 <AjustarVisualizacao
-                  bairros={bairros}
                   municipiosMalha={municipiosMalha}
-                  municipioSelecionado={municipioSelecionado}
+                  municipiosSelecionados={municipiosSelecionados}
                 />
               </MapContainer>
             </div>
@@ -1554,49 +1223,45 @@ export default function MapaEpidemiologico() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  Bairros selecionados
+                  Municípios selecionados
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  A seleção permanece ativa mesmo quando você troca de município.
+                  A seleção permanece ativa enquanto você utiliza os filtros.
                 </p>
               </div>
 
               <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-800">
-                {detalhesBairrosSelecionados.length} selecionado(s)
+                {municipiosComDados.length} selecionado(s)
               </span>
             </div>
 
-            {detalhesBairrosSelecionados.length ? (
+            {municipiosComDados.length ? (
               <div className="space-y-2">
-                {detalhesBairrosSelecionados.map((bairro) => (
+                {municipiosComDados.map((municipio) => (
                   <div
-                    key={bairro.chave}
+                    key={municipio.id}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3"
                   >
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-800">
-                        {bairro.bairro}
-                      </p>
-
-                      <p className="text-xs text-slate-500">
-                        {bairro.municipio}
+                        {municipio.nome}
                       </p>
 
                       <p className="mt-1 text-xs text-slate-600">
-                        {bairro.registros} registro(s) ·{" "}
-                        {bairro.quantidade.toLocaleString("pt-BR")} caso(s)
+                        {municipio.registros} registro(s) ·{" "}
+                        {municipio.quantidade.toLocaleString("pt-BR")} caso(s)
                       </p>
 
-                      {bairro.alertas > 0 && (
+                      {municipio.alertas > 0 && (
                         <p className="mt-1 text-xs font-medium text-slate-600">
-                          {bairro.alertas} alerta(s) ativo(s)
+                          {municipio.alertas} alerta(s) ativo(s)
                         </p>
                       )}
 
-                      {bairro.doencas.length > 0 && (
+                      {municipio.doencas.length > 0 && (
                         <p className="mt-1 text-xs text-slate-500">
-                          Doenças: {bairro.doencas.join(", ")}
+                          Doenças: {municipio.doencas.join(", ")}
                         </p>
                       )}
                     </div>
@@ -1606,16 +1271,16 @@ export default function MapaEpidemiologico() {
                         <span
                           className="h-3 w-3 rounded-full"
                           style={{
-                            backgroundColor: CORES_ALERTA[bairro.nivel],
+                            backgroundColor: CORES_ALERTA[municipio.nivel],
                           }}
                         />
 
-                        {NOMES_ALERTA[bairro.nivel]}
+                        {NOMES_ALERTA[municipio.nivel]}
                       </span>
 
                       <button
                         type="button"
-                        onClick={() => alternarBairro(bairro)}
+                        onClick={() => alternarMunicipio(municipio)}
                         className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
                       >
                         Remover
@@ -1626,7 +1291,7 @@ export default function MapaEpidemiologico() {
               </div>
             ) : (
               <p className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-500">
-                Nenhum bairro selecionado. Escolha um município e marque uma ou mais localidades na lista ou diretamente no mapa.
+                Nenhum município selecionado. Escolha um município na lista ou clique diretamente no mapa.
               </p>
             )}
           </section>
@@ -1637,24 +1302,24 @@ export default function MapaEpidemiologico() {
             </strong>
 
             <p className="mt-1">
-              O município serve somente para localizar os bairros disponíveis. A seleção de bairros é múltipla e permanece ao trocar de município.
+              O mapa utiliza os limites territoriais municipais fornecidos pelo IBGE. Cada polígono representa um dos municípios da Bahia. Não são utilizados polígonos de bairros.
             </p>
 
             <p className="mt-1">
-              Os registros epidemiológicos e os alertas publicados são associados ao município e à localidade. Alertas sem localidade específica valem para todo o município. Alertas agendados, em rascunho ou encerrados não colorem o mapa.
+              Os registros epidemiológicos são associados ao município informado no cadastro. Os alertas publicados e vigentes também são associados ao município, independentemente da localidade específica informada.
             </p>
 
             <p className="mt-1">
-              Ao escolher uma ou mais doenças, a cor de cada bairro considera somente os registros e alertas dessas doenças. Quando existem níveis diferentes no mesmo bairro, prevalece o nível mais grave: vermelho, amarelo e depois verde. Cinza indica ausência de registro correspondente ou ausência de classificação válida.
+              Ao escolher uma ou mais doenças, a classificação de cada município considera somente os registros e alertas dessas doenças. Quando existem níveis diferentes no mesmo município, prevalece o mais grave: vermelho, amarelo e depois verde. Cinza indica ausência de registro correspondente ou ausência de classificação válida.
             </p>
 
             <p className="mt-1">
-              O mapa desenha exclusivamente as geometrias retornadas pela camada de bairros da CONDER. Não utiliza polígonos municipais nem a camada oceânica para colorir ou selecionar o mapa.
+              Os filtros de nível de alerta controlam quais municípios aparecem no mapa. A seleção de municípios pode ser feita pela lista ou diretamente nos polígonos.
             </p>
           </div>
 
           <p className="text-xs leading-5 text-slate-500">
-            Fontes: IBGE, para a lista de municípios e referência cartográfica; CONDER, serviço BAHIA/BAIRRO_GEO, para os polígonos de bairros; Supabase, para os registros epidemiológicos e alertas publicados e vigentes. A disponibilidade de bairros depende da cobertura e dos atributos fornecidos pela camada cartográfica da CONDER. Onde não houver polígono de bairro publicado ou identificável, o mapa não consegue oferecer seleção territorial precisa.
+            Fontes: IBGE, para a lista de municípios e os limites territoriais municipais; Supabase, para os registros epidemiológicos e alertas publicados e vigentes. A classificação depende dos dados cadastrados e publicados no sistema.
           </p>
         </>
       )}
